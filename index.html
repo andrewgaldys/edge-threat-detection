@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Enforced by the browser: this page cannot send data to any other site. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' blob: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Edge Threat Detection</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --line: rgba(11, 11, 11, 0.10);
+  --video: #e1e0d9;
+  --notice: #f0efec;
+  --good: #006300;
+  --warning: #fab219;
+  --critical: #d03b3b;
+  --new: rgba(208, 59, 59, 0.10);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --line: rgba(255, 255, 255, 0.10);
+    --video: #0d0d0d;
+    --notice: #2c2c2a;
+    --good: #0ca30c;
+    --new: rgba(208, 59, 59, 0.22);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--page); }
+body {
+  color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+h1, h2, p, ol { margin: 0; padding: 0; }
+.shell { max-width: 1280px; margin: 0 auto; padding: 20px 16px 32px; }
+.top {
+  align-items: center; display: flex; gap: 12px;
+  justify-content: space-between; margin-bottom: 14px;
+}
+h1 { font-size: 20px; font-weight: 600; }
+h2 { font-size: 14px; font-weight: 600; }
+.state { font-weight: 600; white-space: nowrap; }
+.state.good .mark { color: var(--good); }
+.state.warn .mark { color: var(--warning); }
+.state.bad .mark { color: var(--critical); }
+.notice {
+  background: var(--notice); border-radius: 8px; color: var(--ink-2);
+  margin-bottom: 14px; padding: 9px 12px;
+}
+.notice.problem { color: var(--ink); }
+.tiles {
+  display: grid; gap: 12px; margin-bottom: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.tile, .panel {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.tile { min-width: 0; padding: 14px 16px; }
+.tile h2 { color: var(--ink-2); font-weight: 500; }
+.value { font-size: 32px; font-weight: 600; line-height: 1.25; }
+.value small { color: var(--ink-2); font-size: 14px; font-weight: 500; }
+.sub { color: var(--ink-2); font-size: 13px; }
+.panels {
+  align-items: stretch; display: grid; gap: 12px;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+}
+.panel { display: flex; flex-direction: column; min-width: 0; }
+.panel > header {
+  align-items: center; border-bottom: 1px solid var(--line); display: flex;
+  flex-wrap: wrap; gap: 8px; justify-content: space-between;
+  padding: 11px 16px;
+}
+select, .filters button, .link-button {
+  background: none; border: 1px solid var(--line); border-radius: 6px;
+  color: var(--ink); font: inherit; font-size: 13px;
+}
+select { max-width: 100%; padding: 3px 6px; }
+.controls {
+  align-items: center; border-bottom: 1px solid var(--line); display: flex;
+  flex-wrap: wrap; font-size: 13px; gap: 6px 14px; padding: 8px 16px;
+}
+.controls label { align-items: center; display: flex; gap: 4px; }
+.controls .hint { color: var(--ink-2); }
+.link-button { cursor: pointer; padding: 2px 8px; }
+.link-button[hidden] { display: none; }
+.video { background: var(--video); line-height: 0; position: relative; }
+canvas {
+  cursor: crosshair; display: block; height: auto; touch-action: none;
+  width: 100%;
+}
+.video-note {
+  background: rgba(20, 20, 20, 0.82); border-radius: 8px; color: #fff;
+  font-size: 14px; left: 50%; line-height: 1.4; max-width: 90%;
+  padding: 8px 14px; position: absolute; text-align: center; top: 50%;
+  transform: translate(-50%, -50%);
+}
+.video-note[hidden] { display: none; }
+.feed-wrap { flex: 1 1 0; min-height: 280px; overflow-y: auto; }
+#feed { list-style: none; }
+.alert {
+  animation: arrive 1.6s ease-out; border-bottom: 1px solid var(--line);
+  padding: 10px 16px;
+}
+.alert:last-child { border-bottom: 0; }
+@keyframes arrive { from { background: var(--new); } }
+@media (prefers-reduced-motion: reduce) { .alert { animation: none; } }
+.meta {
+  align-items: center; color: var(--ink-2); display: flex; flex-wrap: wrap;
+  font-size: 12px; gap: 8px; margin-bottom: 3px;
+}
+.time { font-variant-numeric: tabular-nums; }
+.badge {
+  border-radius: 4px; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.02em; padding: 1px 6px;
+}
+.badge.HIGH { background: var(--critical); color: #fff; }
+.badge.MEDIUM { background: var(--warning); color: #0b0b0b; }
+.title { font-weight: 600; overflow-wrap: anywhere; }
+.detail { color: var(--ink-2); font-size: 12.5px; overflow-wrap: anywhere; }
+.filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.filters button { color: var(--ink-2); cursor: pointer; font-size: 12px; padding: 2px 8px; }
+.filters button[aria-pressed="true"] {
+  background: var(--ink); border-color: var(--ink); color: var(--surface);
+}
+#feed[data-filter="HIGH"] .alert:not([data-severity="HIGH"]),
+#feed[data-filter="MEDIUM"] .alert:not([data-severity="MEDIUM"]),
+#feed[data-filter="VISUAL"] .alert:not([data-source="VISUAL"]),
+#feed[data-filter="NETWORK"] .alert:not([data-source="NETWORK"]) {
+  display: none;
+}
+.snapshots {
+  border-top: 1px solid var(--line); display: grid; gap: 8px;
+  grid-template-columns: repeat(6, minmax(0, 1fr)); padding: 10px 16px 12px;
+}
+.snapshots[hidden] { display: none; }
+.snapshots a {
+  color: var(--ink-2); font-size: 11px; min-width: 0; overflow-wrap: anywhere;
+  text-decoration: none;
+}
+.snapshots img {
+  aspect-ratio: 4 / 3; border-radius: 4px; display: block;
+  margin-bottom: 2px; object-fit: cover; width: 100%;
+}
+.empty { color: var(--ink-2); padding: 24px 16px; text-align: center; }
+footer { color: var(--ink-2); font-size: 13px; margin-top: 16px; }
+footer a { color: inherit; }
+@media (max-width: 860px) {
+  .panels { grid-template-columns: minmax(0, 1fr); }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .feed-wrap { flex: none; max-height: 60vh; }
+  .snapshots { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="top">
+    <h1>Edge Threat Detection</h1>
+    <p id="overall" class="state" role="status">Loading</p>
+  </header>
+  <p id="notice" class="notice"></p>
+  <section class="tiles" aria-label="Live statistics">
+    <div class="tile">
+      <h2>HIGH alerts</h2>
+      <p class="value" id="high">0</p>
+      <p class="sub">Since this page opened</p>
+    </div>
+    <div class="tile">
+      <h2>MEDIUM alerts</h2>
+      <p class="value" id="medium">0</p>
+      <p class="sub">Since this page opened</p>
+    </div>
+    <div class="tile">
+      <h2>Camera detector</h2>
+      <p class="value" id="camera-rate">&ndash;</p>
+      <p class="sub" id="camera-sub">Loading model</p>
+    </div>
+    <div class="tile">
+      <h2>Network detector</h2>
+      <p class="value" id="network-rate">&ndash;</p>
+      <p class="sub" id="network-sub">Starting</p>
+    </div>
+  </section>
+  <section class="panels">
+    <article class="panel">
+      <header>
+        <h2>Camera feed</h2>
+        <select id="source" aria-label="Video source">
+          <option value="demo">Demonstration scene</option>
+          <option value="camera">Use my camera&hellip;</option>
+        </select>
+      </header>
+      <div class="controls">
+        <label><input type="checkbox" value="person" checked> Person</label>
+        <label><input type="checkbox" value="car" checked> Car</label>
+        <label><input type="checkbox" value="dog" checked> Dog</label>
+        <label><input type="checkbox" value="drone" checked> Drone</label>
+        <span class="hint">Drag on the video to set a perimeter zone</span>
+        <button id="clear-zone" class="link-button" type="button" hidden>Clear zone</button>
+      </div>
+      <div class="video">
+        <canvas id="view" width="640" height="370" role="img"
+                aria-label="Live video with detection boxes"></canvas>
+        <p id="video-note" class="video-note">Loading the detection model</p>
+      </div>
+      <div id="snapshots" class="snapshots" aria-label="Recent breaches" hidden></div>
+    </article>
+    <article class="panel">
+      <header>
+        <h2>Alerts</h2>
+        <div class="filters" role="group" aria-label="Filter alerts">
+          <button type="button" data-filter="ALL" aria-pressed="true">All</button>
+          <button type="button" data-filter="HIGH" aria-pressed="false">High</button>
+          <button type="button" data-filter="MEDIUM" aria-pressed="false">Medium</button>
+          <button type="button" data-filter="VISUAL" aria-pressed="false">Camera</button>
+          <button type="button" data-filter="NETWORK" aria-pressed="false">Network</button>
+        </div>
+      </header>
+      <div class="feed-wrap">
+        <ol id="feed"></ol>
+        <p id="feed-empty" class="empty">No alerts yet</p>
+      </div>
+    </article>
+  </section>
+  <footer>
+    Browser edition: the YOLOv8 model runs on this device, and video never
+    leaves it. <a href="NOTICE.txt">Credits and licences</a>.
+  </footer>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
